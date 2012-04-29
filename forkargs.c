@@ -14,14 +14,11 @@
 
 /* Spawn off <n> jobs at a time.
  * Read command lines from stdin?
- * Use case is...?
+ * Use case is:
  *   find -name '*.tar' | forkargs bzip2 -9 
- * Interpret input line as a single argument? Or as a string to give
- * to 'sh -c'?
+ * Input line is passed as a single argument to the command.
  *
- * If we interpret it as a single argument, we can prepend argv[] to
- * get the string to exec. We can pass that through to other commands
- * by using sh:
+ * We can pass that through to other commands by using sh:
  *
  * find . | forkargs sh -c 'cp $1 dest'
  */
@@ -117,10 +114,13 @@ int main (int argc, char *argv[])
         {
           const char *trace_name = "-";
           if (argv[i][2])
+            /* '-t<filename>' */
             trace_name = &argv[i][2];
           else if (i + 1 < argc)
+            /* '-t <filename>' */
             trace_name = argv[++i];
           else
+            /* '-t' */
             missing_arg (argv[i]);
           if (trace_name[0] == '-' && trace_name[1] == '\0')
             trace = stderr;
@@ -131,6 +131,13 @@ int main (int argc, char *argv[])
               fprintf (stderr, "Cannot open trace file '%s'\n", trace_name);
               exit (0);
             }
+        }
+      else if (argv[i][1] == 'h')
+        {
+          fprintf (stdout, "Syntax: forkargs -t -j<n>\n");
+          fprintf (stdout, " -t<out> trace process control info to <out>\n");
+          fprintf (stdout, " -j<n>   Maximum of <n> parallel jobs\n");
+          exit (0);
         }
       else
         bad_arg (argv[i]);
@@ -169,6 +176,12 @@ int main (int argc, char *argv[])
                      argv[0], n_active);
           /* Wait for one to exit before proceeding */
           cpid = wait (&status);
+          if (cpid == -1)
+            {
+              perror(argv[0]);
+              exit(1);
+            }
+
           if (trace)
             fprintf (trace, "%s: child %d terminated\n", argv[0], cpid);
           n_active--;
