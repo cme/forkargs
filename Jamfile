@@ -1,0 +1,3 @@
+PREFIX ?= $(HOME) ;
+Main forkargs : forkargs.c ;
+InstallBin $(PREFIX)/bin : forkargs ;

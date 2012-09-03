@@ -13,7 +13,7 @@
 
 
 /* Spawn off <n> jobs at a time.
- * Read command lines from stdin?
+ * Read command line arguments from stdin.
  * Use case is:
  *   find -name '*.tar' | forkargs bzip2 -9 
  * Input line is passed as a single argument to the command.
@@ -66,15 +66,24 @@ read_line (FILE *in)
 
 /* read_line.c >>> */
 
+void help()
+{
+  fprintf (stdout, "Syntax: forkargs -t<out> -j<n>\n");
+  fprintf (stdout, " -t<out> trace process control info to <out>\n");
+  fprintf (stdout, " -j<n>   Maximum of <n> parallel jobs\n");
+}
+
 void bad_arg(char *arg)
 {
   fprintf (stderr, "Bad argument: '%s'\n", arg);
+  help();
   exit (2);
 }
 
 void missing_arg(char *arg)
 {
   fprintf (stderr, "Missing parameter to argument: '%s'\n", arg);
+  help();
   exit (2);
 }
 
@@ -134,9 +143,7 @@ int main (int argc, char *argv[])
         }
       else if (argv[i][1] == 'h')
         {
-          fprintf (stdout, "Syntax: forkargs -t -j<n>\n");
-          fprintf (stdout, " -t<out> trace process control info to <out>\n");
-          fprintf (stdout, " -j<n>   Maximum of <n> parallel jobs\n");
+          help();
           exit (0);
         }
       else
