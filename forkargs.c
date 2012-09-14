@@ -1,6 +1,8 @@
 /* forkargs.c
  * Fork for each line of input, limiting parallelism to a specified
  * number of processes.
+ * TODO: remote exec
+ * TODO: bail out on errors?
  */
 
 #include <stdio.h>
@@ -25,8 +27,6 @@
 
 int n_processes = 1;
 FILE *trace = NULL;
-
-/* <<< read_line.c */
 
 static char *
 read_line_offset (FILE *in,
@@ -64,7 +64,6 @@ read_line (FILE *in)
   return read_line_offset (in, 0);
 }
 
-/* read_line.c >>> */
 
 void help()
 {
@@ -87,22 +86,10 @@ void missing_arg(char *arg)
   exit (2);
 }
 
-int main (int argc, char *argv[])
+/* Parse command-line arguments */
+void parse_args(int argc, char *argv[], int *first_arg_p)
 {
-  char *str;
   int i;
-  char **args;
-  int first_arg;
-  int line_arg;
-  int n_active = 0;
-  int cpid;
-
-  /* Defaults from environment */
-  str = getenv("FORKARGS_J");
-  if (str)
-    n_processes = atoi (str);
-
-  /* Parse options */
   for (i = 1; i < argc && argv[i][0] == '-'; i++)
     {
       if (argv[i][1] == 'j')
@@ -149,6 +136,25 @@ int main (int argc, char *argv[])
       else
         bad_arg (argv[i]);
     }
+  *first_arg_p = i;
+}
+
+int main (int argc, char *argv[])
+{
+  char *str;
+  char **args;
+  int first_arg;
+  int line_arg;
+  int n_active = 0;
+  int cpid;
+  int i;
+
+  /* Defaults from environment */
+  str = getenv("FORKARGS_J");
+  if (str)
+    n_processes = atoi (str);
+
+  parse_args(argc, argv, &first_arg);
 
   if (n_processes <= 0)
     {
@@ -156,9 +162,8 @@ int main (int argc, char *argv[])
       exit (2);
     }
 
-  first_arg = i;
+  /* Collect command arguments */
   args = calloc (argc - first_arg + 2, sizeof (char *));
-
   for (i = 0; i < argc - first_arg; i++)
     args[i] = argv[i + first_arg];
   line_arg = i;
