@@ -25,8 +25,38 @@
  * find . | forkargs sh -c 'cp $1 dest'
  */
 
-int n_processes = 1;
 FILE *trace = NULL;
+
+typedef struct Slot Slot;
+struct Slot
+{
+  char *hostname;
+  pid_t cpid;
+  char *arg;
+};
+
+Slot *slots;
+int n_slots = 1;
+
+void print_slots(FILE *out)
+{
+  fprintf (out, "Slots:\n");
+  if (slots)
+    {
+      int i;
+      for (i = 0; i < n_slots; i++)
+        {
+          fprintf (out, "%20s %d '%s'\n",
+                   slots[i].hostname? slots[i].hostname : "localhost",
+                   slots[i].cpid,
+                   slots[i].arg);
+        }
+    }
+  else
+    {
+      fprintf (out, "(no slots)\n");
+    }
+}
 
 static char *
 read_line_offset (FILE *in,
@@ -96,13 +126,13 @@ void parse_args(int argc, char *argv[], int *first_arg_p)
         {
           if (argv[i][2] >= '0' && argv[i][2] <= '9')
             /* '-j<n>' */
-            n_processes = atoi(&argv[i][2]);
+            n_slots = atoi(&argv[i][2]);
           else if (argv[i][2])
             /* '-j<garbage>' */
             bad_arg(argv[i]);
           else if (i + 1 < argc)
             /* '-j' '<n>' */
-            n_processes = atoi(argv[++i]);
+            n_slots = atoi(argv[++i]);
           else
             missing_arg (argv[i]);
         }
@@ -152,15 +182,26 @@ int main (int argc, char *argv[])
   /* Defaults from environment */
   str = getenv("FORKARGS_J");
   if (str)
-    n_processes = atoi (str);
+    n_slots = atoi (str);
 
   parse_args(argc, argv, &first_arg);
 
-  if (n_processes <= 0)
+  if (n_slots <= 0)
     {
-      fprintf (stderr, "Bad process limit (%d)\n", n_processes);
+      fprintf (stderr, "Bad process limit (%d)\n", n_slots);
       exit (2);
     }
+
+  /* Initialise slots */
+  slots = calloc (sizeof (Slot), n_slots);
+  for (i = 0; i < n_slots; i++)
+    {
+      slots[i].hostname = NULL;
+      slots[i].cpid = -1;
+      slots[i].arg = NULL;
+    }
+  if (trace)
+    print_slots(trace);
 
   /* Collect command arguments */
   args = calloc (argc - first_arg + 2, sizeof (char *));
@@ -179,7 +220,7 @@ int main (int argc, char *argv[])
       args[line_arg] = str;
       args[line_arg+1] = NULL;
 
-      if (n_active >= n_processes)
+      if (n_active >= n_slots)
         {
           int status;
           if (trace)
@@ -196,6 +237,23 @@ int main (int argc, char *argv[])
 
           if (trace)
             fprintf (trace, "%s: child %d terminated\n", argv[0], cpid);
+
+          /* Scan slot table and remove entry */
+          for (i = 0; i < n_slots; i++)
+            if (cpid == slots[i].cpid)
+              {
+                slots[i].cpid = -1;
+                if (slots[i].arg)
+                  free (slots[i].arg);
+                break;
+              }
+          if (i == n_slots)
+            {
+              fprintf (stderr, "%s: cannot find child %d in slot table\n",
+                       argv[0], cpid);
+              exit(1);
+            }
+
           n_active--;
         }
 
@@ -203,6 +261,27 @@ int main (int argc, char *argv[])
       if (cpid)
         {
           /* parent */
+          /* Scan the slot table to find a free slot. */
+          for (i = 0; i < n_slots; i++)
+            if (slots[i].cpid == -1)
+              {
+                slots[i].cpid = cpid;
+                slots[i].arg = str;
+                break;
+              }
+          if (i == n_slots)
+            {
+              fprintf (stderr, "%s: cannot find a free slot. Miscounted?\n",
+                       argv[0]);
+              exit(1);
+            }
+          if (trace)
+            {
+              fprintf (trace, "Inserted in slot %d.\n", i);
+              print_slots(trace);
+            }
+          
+
           n_active++;
           if (trace)
             fprintf (trace, "%s: started child %d\n", argv[0], cpid);
@@ -223,7 +302,7 @@ int main (int argc, char *argv[])
           exit(0);
         }
 
-      free (str);
+      //      free (str);
     }
 
   /* Wait for all children to terminate */
