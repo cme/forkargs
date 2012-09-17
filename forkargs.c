@@ -1,7 +1,8 @@
 /* forkargs.c
  * Fork for each line of input, limiting parallelism to a specified
  * number of processes.
- * TODO: remote exec
+ * TODO: remote exec: parse slots, exec with ssh, set ssh params, set
+ * pre- and post-commands for remote.
  * TODO: bail out on errors?
  */
 
@@ -32,7 +33,9 @@ struct Slot
 {
   char *hostname;
   pid_t cpid;
-  char *arg;
+  char **args;
+  int n_args;                   /* number of existing args. */
+  char *arg;                    /* current argument */
 };
 
 Slot *slots;
@@ -46,15 +49,34 @@ void print_slots(FILE *out)
       int i;
       for (i = 0; i < n_slots; i++)
         {
-          fprintf (out, "%20s %d '%s'\n",
-                   slots[i].hostname? slots[i].hostname : "localhost",
+          fprintf (out, "%20s %5d '%s'\n",
+                   slots[i].hostname? slots[i].hostname : "(localhost)",
                    slots[i].cpid,
-                   slots[i].arg);
+                   slots[i].cpid != -1? slots[i].arg : "-");
         }
     }
   else
     {
       fprintf (out, "(no slots)\n");
+    }
+}
+
+void setup_slots(const char *str, int n_slots, char ** args, int n_args)
+{
+  int i;
+  fprintf (stderr, "Initialise slots with args: ");
+  for (i = 0; i < n_args; i++)
+    fprintf (stderr, "'%s' ", args[i]);
+  fprintf (stderr, "\n");
+  /* Initialise slots */
+  slots = calloc (sizeof (Slot), n_slots);
+  for (i = 0; i < n_slots; i++)
+    {
+      slots[i].hostname = NULL;
+      slots[i].cpid = -1;
+      slots[i].arg = NULL;
+      slots[i].args = args;
+      slots[i].n_args = n_args;
     }
 }
 
@@ -178,6 +200,7 @@ int main (int argc, char *argv[])
   int n_active = 0;
   int cpid;
   int i;
+  int slot;
 
   /* Defaults from environment */
   str = getenv("FORKARGS_J");
@@ -192,22 +215,16 @@ int main (int argc, char *argv[])
       exit (2);
     }
 
-  /* Initialise slots */
-  slots = calloc (sizeof (Slot), n_slots);
-  for (i = 0; i < n_slots; i++)
-    {
-      slots[i].hostname = NULL;
-      slots[i].cpid = -1;
-      slots[i].arg = NULL;
-    }
-  if (trace)
-    print_slots(trace);
-
   /* Collect command arguments */
   args = calloc (argc - first_arg + 2, sizeof (char *));
   for (i = 0; i < argc - first_arg; i++)
     args[i] = argv[i + first_arg];
   line_arg = i;
+
+  setup_slots (NULL, n_slots, args, line_arg);
+
+  if (trace)
+    print_slots(trace);
 
   while ((str = read_line (stdin)))
     {
@@ -215,10 +232,6 @@ int main (int argc, char *argv[])
       char *nl = strstr (str, "\n");
       if (nl)
         *nl = '\0';
-
-      /* Construct exec parameters */
-      args[line_arg] = str;
-      args[line_arg+1] = NULL;
 
       if (n_active >= n_slots)
         {
@@ -257,31 +270,31 @@ int main (int argc, char *argv[])
           n_active--;
         }
 
+      /* Scan the slot table to find a free slot. */
+      for (i = 0; i < n_slots; i++)
+        if (slots[i].cpid == -1)
+          break;
+      if (i == n_slots)
+        {
+          fprintf (stderr, "%s: cannot find a free slot. Miscounted?\n",
+                   argv[0]);
+          exit(1);
+        }
+      slot = i;
+
       cpid = fork();
       if (cpid)
         {
           /* parent */
-          /* Scan the slot table to find a free slot. */
-          for (i = 0; i < n_slots; i++)
-            if (slots[i].cpid == -1)
-              {
-                slots[i].cpid = cpid;
-                slots[i].arg = str;
-                break;
-              }
-          if (i == n_slots)
-            {
-              fprintf (stderr, "%s: cannot find a free slot. Miscounted?\n",
-                       argv[0]);
-              exit(1);
-            }
+          slots[i].cpid = cpid;
+          slots[i].arg = str;
+
           if (trace)
             {
-              fprintf (trace, "Inserted in slot %d.\n", i);
+              fprintf (trace, "Inserted in slot %d.\n", slot);
               print_slots(trace);
             }
           
-
           n_active++;
           if (trace)
             fprintf (trace, "%s: started child %d\n", argv[0], cpid);
@@ -291,18 +304,20 @@ int main (int argc, char *argv[])
           /* Child. Execute the process. */
           if (trace)
             {
-              fprintf (trace, "%s: exec ", argv[0]);
-              for (i = 0; i <= line_arg; i++)
-                fprintf (trace, "'%s' ", args[i]);
+              fprintf (trace, "%s: exec ", slots[i].args[0]);
+              for (i = 0; i <= slots[i].n_args; i++)
+                fprintf (trace, "'%s' ", slots[i].args[i]);
               fprintf (trace, "\n");
             }
+          /* Construct exec parameters */
+          slots[slot].args[slots[slot].n_args] = str;
+          slots[slot].args[slots[slot].n_args+1] = NULL;
+
           close(STDIN_FILENO);
           open("/dev/null", O_RDONLY);
           execvp(args[0], args);
           exit(0);
         }
-
-      //      free (str);
     }
 
   /* Wait for all children to terminate */
@@ -315,6 +330,21 @@ int main (int argc, char *argv[])
       if (trace)
         fprintf (trace, "%s: child %d terminated\n", argv[0], cpid);
       n_active --;
+
+      /* Clear out the slot table */
+      for (i = 0; i < n_slots; i++)
+        if (slots[i].cpid == cpid)
+          {
+            slots[i].cpid = -1;
+            free (slots[i].arg);
+            if (trace)
+              {
+                fprintf (trace, "Removed process from slot table entry %d\n", i);
+                print_slots(trace);
+                break;
+              }
+          }
     }
+
   return 0;
 }
