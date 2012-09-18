@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
 #include <unistd.h>
 #include <sys/wait.h>
@@ -40,6 +41,7 @@ struct Slot
 
 Slot *slots;
 int n_slots = 1;
+const char *slots_string = NULL;
 
 void print_slots(FILE *out)
 {
@@ -61,13 +63,9 @@ void print_slots(FILE *out)
     }
 }
 
-void setup_slots(const char *str, int n_slots, char ** args, int n_args)
+void setup_slots(const char *str, char ** args, int n_args)
 {
   int i;
-  fprintf (stderr, "Initialise slots with args: ");
-  for (i = 0; i < n_args; i++)
-    fprintf (stderr, "'%s' ", args[i]);
-  fprintf (stderr, "\n");
   /* Initialise slots */
   slots = calloc (sizeof (Slot), n_slots);
   for (i = 0; i < n_slots; i++)
@@ -77,6 +75,82 @@ void setup_slots(const char *str, int n_slots, char ** args, int n_args)
       slots[i].arg = NULL;
       slots[i].args = args;
       slots[i].n_args = n_args;
+    }
+
+  /* Parse the slots string and set up additional slots. */
+  if (str)
+    {
+      const char *c = str;
+
+      n_slots = 0;
+      while (*c)
+        {
+          int num_slots = 1;
+          char hostname[BUFSIZ];
+
+          while (*c && isspace(*c))
+            c++;
+
+          /* int '*' hostname ? */
+          if (*c && isdigit(*c))
+            {
+              const char *c2 = c;
+              char num[BUFSIZ];
+              i = 0;
+              while (*c2 && isdigit(*c2))
+                num[i++ % BUFSIZ] = *c2++;
+              num[i++] = '\0';
+              while (*c2 && isspace(*c2))
+                c2++;
+              if (*c2 && *c2 == '*')
+                {
+                  num_slots = atol(num);
+                  c = c2+1;
+                  while (*c && isspace(*c))
+                    c++;
+                }
+            }
+
+          /* Hostname */
+          i = 0;
+          while (*c && (isalnum(*c) || *c == '-' || *c == '.' || *c == '-' || *c == '@'))
+            hostname[i++] = *c++;
+          hostname[i++] = '\0';
+
+          if (i == 1)
+            {
+              fprintf (stderr, "Bad hostname: '%s'\n", c);
+              exit(2);
+            }
+          
+          while (*c && isspace(*c))
+            c++;
+
+          for (i = 0; i < num_slots; i++)
+            {
+              int a, ai;
+              char **slot_args;
+              char *host = NULL;
+              if (strcmp(hostname, "localhost") && strcmp(hostname, "-"))
+                host = strdup(hostname);
+              a = 0;
+              slot_args = calloc (n_args + 2 + 2, sizeof(*slot_args));
+              if (host)
+                {
+                  slot_args[a++] = "ssh";
+                  slot_args[a++] = host;
+                }
+              for (ai = 0; ai < n_args; ai++)
+                slot_args[a++] = args[ai];
+
+              slots = realloc(slots, sizeof(*slots) * (++n_slots));
+              slots[n_slots -1].hostname = host;
+              slots[n_slots -1].cpid = -1;
+              slots[n_slots -1].args = slot_args;
+              slots[n_slots -1].n_args = a;
+              slots[n_slots -1].arg = NULL;
+            }
+        }
     }
 }
 
@@ -180,6 +254,13 @@ void parse_args(int argc, char *argv[], int *first_arg_p)
               exit (0);
             }
         }
+      else if (argv[i][1] == 's' && !strcmp(argv[i], "-slots"))
+        {
+          if (argv[i+1])
+            slots_string = argv[++i];
+          else
+            missing_arg(argv[i]);
+        }
       else if (argv[i][1] == 'h')
         {
           help();
@@ -221,7 +302,7 @@ int main (int argc, char *argv[])
     args[i] = argv[i + first_arg];
   line_arg = i;
 
-  setup_slots (NULL, n_slots, args, line_arg);
+  setup_slots (slots_string, args, line_arg);
 
   if (trace)
     print_slots(trace);
@@ -301,21 +382,22 @@ int main (int argc, char *argv[])
         }
       else
         {
-          /* Child. Execute the process. */
-          if (trace)
-            {
-              fprintf (trace, "%s: exec ", slots[i].args[0]);
-              for (i = 0; i <= slots[i].n_args; i++)
-                fprintf (trace, "'%s' ", slots[i].args[i]);
-              fprintf (trace, "\n");
-            }
           /* Construct exec parameters */
           slots[slot].args[slots[slot].n_args] = str;
           slots[slot].args[slots[slot].n_args+1] = NULL;
 
+          /* Child. Execute the process. */
+          if (trace)
+            {
+              fprintf (trace, "%s: exec ", argv[0]);
+              for (i = 0; i <= slots[slot].n_args; i++)
+                fprintf (trace, "'%s' ", slots[slot].args[i]);
+              fprintf (trace, "\n");
+            }
+
           close(STDIN_FILENO);
           open("/dev/null", O_RDONLY);
-          execvp(args[0], args);
+          execvp(slots[slot].args[0], slots[slot].args);
           exit(0);
         }
     }
