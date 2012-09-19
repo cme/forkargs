@@ -37,11 +37,35 @@ struct Slot
   char **args;
   int n_args;                   /* number of existing args. */
   char *arg;                    /* current argument */
+  int escape_arg;
 };
 
 Slot *slots;
 int n_slots = 1;
 const char *slots_string = NULL;
+
+char *escape_str (const char *str)
+{
+  char *escaped;
+  int len;
+  char *o;
+  len = strlen (str);
+  escaped = malloc (len * 2 + 1);
+  o = escaped;
+  while (*str)
+    {
+      if (!(isalnum (*str)
+            || *str == '_'
+            || *str == '-'
+            || *str == '/'
+            || *str == '.'))
+        *o++ = '\\';
+      *o++ = *str++;        
+    }
+  *o++ = '\0';
+  escaped = realloc (escaped, strlen (escaped) + 1);
+  return escaped;
+}
 
 void print_slots(FILE *out)
 {
@@ -139,9 +163,12 @@ void setup_slots(const char *str, char ** args, int n_args)
                 {
                   slot_args[a++] = "ssh";
                   slot_args[a++] = host;
+                  for (ai = 0; ai < n_args; ai++)
+                    slot_args[a++] = escape_str (args[ai]);
                 }
-              for (ai = 0; ai < n_args; ai++)
-                slot_args[a++] = args[ai];
+              else
+                for (ai = 0; ai < n_args; ai++)
+                  slot_args[a++] = args[ai];
 
               slots = realloc(slots, sizeof(*slots) * (++n_slots));
               slots[n_slots -1].hostname = host;
@@ -149,6 +176,7 @@ void setup_slots(const char *str, char ** args, int n_args)
               slots[n_slots -1].args = slot_args;
               slots[n_slots -1].n_args = a;
               slots[n_slots -1].arg = NULL;
+              slots[n_slots -1].escape_arg = host != NULL;
             }
         }
     }
@@ -191,17 +219,17 @@ read_line (FILE *in)
 }
 
 
-void help()
+void help (void)
 {
   fprintf (stdout, "Syntax: forkargs -t<out> -j<n>\n");
   fprintf (stdout, " -t<out> trace process control info to <out>\n");
   fprintf (stdout, " -j<n>   Maximum of <n> parallel jobs\n");
 }
 
-void bad_arg(char *arg)
+void bad_arg (char *arg)
 {
   fprintf (stderr, "Bad argument: '%s'\n", arg);
-  help();
+  help ();
   exit (2);
 }
 
@@ -382,11 +410,15 @@ int main (int argc, char *argv[])
         }
       else
         {
+          /* Child. Execute the process. */
+
           /* Construct exec parameters */
-          slots[slot].args[slots[slot].n_args] = str;
+          if (slots[slot].escape_arg)
+            slots[slot].args[slots[slot].n_args] = escape_str (str);
+          else
+            slots[slot].args[slots[slot].n_args] = str;
           slots[slot].args[slots[slot].n_args+1] = NULL;
 
-          /* Child. Execute the process. */
           if (trace)
             {
               fprintf (trace, "%s: exec ", argv[0]);
