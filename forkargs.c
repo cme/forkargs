@@ -459,7 +459,11 @@ int main (int argc, char *argv[])
             {
               fprintf (stderr, "forkargs: ");
               for (i = 0; i < slots[slot].n_args; i++)
-                fprintf (stderr, "'%s' ", slots[slot].args[i]);
+                {
+                  char *e = escape_str (slots[slot].args[i]);
+                  fprintf (stderr, "%s ", e);
+                  free (e);
+                }
               fprintf (stderr, "\n");
             }
 
