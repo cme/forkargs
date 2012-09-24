@@ -458,12 +458,21 @@ int main (int argc, char *argv[])
           if (verbose)
             {
               fprintf (stderr, "forkargs: ");
-              for (i = 0; i < slots[slot].n_args; i++)
-                {
-                  char *e = escape_str (slots[slot].args[i]);
-                  fprintf (stderr, "%s ", e);
-                  free (e);
-                }
+              for (i = 0; i <= slots[slot].n_args; i++)
+                if (strstr(slots[slot].args[i], " ") == NULL)
+                  /* No real need to print anything fancy */
+                  fprintf (stderr, "%s ", slots[slot].args[i]);
+                else if (strstr(slots[slot].args[i], "'") == NULL)
+                  /* Print with '' if that'll look okay */
+                  fprintf (stderr, "'%s' ", slots[slot].args[i]);
+                else
+                  {
+                    /* Escape the whole thing. Looks ugly, but should
+                       be rare. */
+                    char *e = escape_str (slots[slot].args[i]);
+                    fprintf (stderr, "%s ", e);
+                    free (e);
+                  }
               fprintf (stderr, "\n");
             }
 
