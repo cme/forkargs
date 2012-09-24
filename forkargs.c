@@ -3,7 +3,6 @@
  * number of processes.
  * TODO: remote exec: parse slots, exec with ssh, set ssh params, set
  * pre- and post-commands for remote.
- * TODO: bail out on errors?
  */
 
 #include <stdio.h>
@@ -47,6 +46,8 @@ int n_slots = 1;
 const char *slots_string = NULL;
 
 int continue_on_error = 0;
+
+int verbose = 0;
 
 char *escape_str (const char *str)
 {
@@ -249,9 +250,10 @@ read_line (FILE *in)
 void help (void)
 {
   fprintf (stdout, "Syntax: forkargs -t<out> -j<n>\n");
-  fprintf (stdout, " -t<out> trace process control info to <out>\n");
   fprintf (stdout, " -j<n>   Maximum of <n> parallel jobs\n");
   fprintf (stdout, " -k      Continue on errors.\n");
+  fprintf (stdout, " -v      Verbose\n");
+  fprintf (stdout, " -t<out> trace process control info to <out>\n");
 }
 
 void bad_arg (char *arg)
@@ -287,6 +289,8 @@ void parse_args(int argc, char *argv[], int *first_arg_p)
         }
       else if (argv[i][1] == 'k' && !argv[i][2])
         continue_on_error = 1;
+      else if (argv[i][1] == 'v' && !argv[i][2])
+        verbose = 1;
       else if (argv[i][1] == 't')
         {
           const char *trace_name = "-";
@@ -449,6 +453,14 @@ int main (int argc, char *argv[])
               for (i = 0; i <= slots[slot].n_args; i++)
                 fprintf (trace, "'%s' ", slots[slot].args[i]);
               fprintf (trace, "\n");
+            }
+
+          if (verbose)
+            {
+              fprintf (stderr, "forkargs: ");
+              for (i = 0; i < slots[slot].n_args; i++)
+                fprintf (stderr, "'%s' ", slots[slot].args[i]);
+              fprintf (stderr, "\n");
             }
 
           close(STDIN_FILENO);
