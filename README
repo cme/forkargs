@@ -1,0 +1,80 @@
+forkargs
+--------
+
+Forkargs behaves a little like xargs, but providing the capability of
+executing jobs in parallel, to exploit the available resources of
+modern multi-core or multiprocessor machines in a handy, easy-to-use
+format.
+
+Important differences from xargs are:
+
+  * Arguments are not batched together into single commands
+
+  * Arguments from input are treated as a single argument per
+    line. This makes treatment of filenames with spaces much, much
+    easier.
+
+Quick examples:
+
+        # Compress all text files with bzip, executing 4 jobs at once.
+        find . -name '*.txt' | forkargs -j4 bzip2 -9
+
+Options
+-------
+
+    -j <slots>
+
+        Specify parallel jobs (cc. 'make -j'). The 'slots' argument
+        may be an integer specifying the number of jobs to execute
+        locally in parallel, or a slot definition list.
+    -k
+        Continue on errors.
+
+Remote Execution and Slots
+--------------------------
+
+forkargs also supports remote execution of commands using ssh. This
+allows forkargs to be used as a job distribution tool for small
+clusters. This is most useful in clusters with shared filesystems, but
+depending on the nature of the jobs being dispatched, rsync might be
+useful for mirroring filesystem state and gathering results.
+
+Each remote job is started as a separate ssh session. This adds
+significant latency at the start of the job, and makes it almost
+essential to set up ssh keys appropriately to avoid having to enter
+passwords. 
+
+(TODO: don't do it that way.)
+
+Remote hosts are specified using a generalisation of the '-j'
+option. The argument to the '-j' option defines a list of execution
+"slots". The format is a comma-separated list of entries defining some
+number of slots, each of which may execute a job in parallel. Each item may take the forms:
+
+    n
+        Defines 'n' (an integer) slots on the local machine. Directly
+        comparable to make's '-j'.
+    hostname
+        Defines a slot on remote host 'hostname' to be spawned by ssh. 
+        The hostname can incorporate a username, to be passed directly
+        to ssh.
+    n * hostname
+        Defines 'n' (an integer) identical slots on a remote machine 'hostname'
+
+The following are all equivalent to '-j3':
+    -j 1,1,1
+    -j 1,2
+    -j '3*localhost'
+
+The order of the slots is significant. Available jobs are always
+started preferentially on the first slots. This is helpful if the
+latency on establishing an ssh connection becomes a constraining
+factor, or if machines have different performance
+characteristics. This way the faster machines can be used
+preferentially to reduce the overall execution time if individual
+jobs are long-running.
+
+For example:
+
+    ls '*.wav' | forkargs -j '2,2*colin@willow' \
+        sh -c 'lame $1 `basename $1.wav`'

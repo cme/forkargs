@@ -40,9 +40,13 @@ struct Slot
   int escape_arg;
 };
 
+/* Execution slots table */
 Slot *slots;
 int n_slots = 1;
+
 const char *slots_string = NULL;
+
+int continue_on_error = 0;
 
 char *escape_str (const char *str)
 {
@@ -75,7 +79,7 @@ void print_slots(FILE *out)
       int i;
       for (i = 0; i < n_slots; i++)
         {
-          fprintf (out, "%20s %5d '%s'\n",
+          fprintf (out, "%60s %5d '%s'\n",
                    slots[i].hostname? slots[i].hostname : "(localhost)",
                    slots[i].cpid,
                    slots[i].cpid != -1? slots[i].arg : "-");
@@ -87,10 +91,11 @@ void print_slots(FILE *out)
     }
 }
 
+/* Initialise slots */
 void setup_slots(const char *str, char ** args, int n_args)
 {
   int i;
-  /* Initialise slots */
+  n_slots = 1;                  /* default to 1 slot */
   slots = calloc (sizeof (Slot), n_slots);
   for (i = 0; i < n_slots; i++)
     {
@@ -110,7 +115,7 @@ void setup_slots(const char *str, char ** args, int n_args)
       while (*c)
         {
           int num_slots = 1;
-          char hostname[BUFSIZ];
+          char hostname[BUFSIZ] = "localhost";
 
           while (*c && isspace(*c))
             c++;
@@ -133,23 +138,29 @@ void setup_slots(const char *str, char ** args, int n_args)
                   while (*c && isspace(*c))
                     c++;
                 }
+              else if (!*c2 || *c2 == ',')
+                {
+                  num_slots = atol (num);
+                  c = c2;       /* don't skip the ',' if there is one. */
+                }
             }
 
-          /* Hostname */
-          i = 0;
-          while (*c && (isalnum(*c) || *c == '-' || *c == '.' || *c == '-' || *c == '@'))
-            hostname[i++] = *c++;
-          hostname[i++] = '\0';
-
-          if (i == 1)
+          if (*c && *c != ',')
             {
-              fprintf (stderr, "Bad hostname: '%s'\n", c);
-              exit(2);
+              /* Hostname */
+              i = 0;
+              while (*c && (isalnum(*c) || *c == '-' || *c == '.' || *c == '-' || *c == '@'))
+                hostname[i++] = *c++;
+              hostname[i++] = '\0';
+              
+              if (i == 1)
+                {
+                  fprintf (stderr, "Bad hostname: '%s'\n", c);
+                  exit(2);
+                }
             }
           
-          while (*c && isspace(*c))
-            c++;
-
+          /* Set up NUM_SLOTS slots for this entry. */
           for (i = 0; i < num_slots; i++)
             {
               int a, ai;
@@ -178,7 +189,23 @@ void setup_slots(const char *str, char ** args, int n_args)
               slots[n_slots -1].arg = NULL;
               slots[n_slots -1].escape_arg = host != NULL;
             }
-        }
+
+          while (*c && isspace(*c))
+            c++;
+          
+          /* Comma separates slots */
+          if (*c)
+            if (*c == ',' && *(c + 1))
+              c++;              /* and then continue */
+            else
+              {
+                fprintf (stderr, "Bad slot description at '%s'\n", c);
+                exit (1);
+              }
+          else
+            break;
+
+        } /* while (*c) */
     }
 }
 
@@ -224,6 +251,7 @@ void help (void)
   fprintf (stdout, "Syntax: forkargs -t<out> -j<n>\n");
   fprintf (stdout, " -t<out> trace process control info to <out>\n");
   fprintf (stdout, " -j<n>   Maximum of <n> parallel jobs\n");
+  fprintf (stdout, " -k      Continue on errors.\n");
 }
 
 void bad_arg (char *arg)
@@ -236,7 +264,7 @@ void bad_arg (char *arg)
 void missing_arg(char *arg)
 {
   fprintf (stderr, "Missing parameter to argument: '%s'\n", arg);
-  help();
+  help ();
   exit (2);
 }
 
@@ -248,18 +276,17 @@ void parse_args(int argc, char *argv[], int *first_arg_p)
     {
       if (argv[i][1] == 'j')
         {
-          if (argv[i][2] >= '0' && argv[i][2] <= '9')
-            /* '-j<n>' */
-            n_slots = atoi(&argv[i][2]);
-          else if (argv[i][2])
-            /* '-j<garbage>' */
-            bad_arg(argv[i]);
+          if (argv[i][2])
+            /* '-j<string>' */
+            slots_string = &argv[i][2];
           else if (i + 1 < argc)
-            /* '-j' '<n>' */
-            n_slots = atoi(argv[++i]);
+            /* '-j' '<string>' */
+            slots_string = argv[++i];
           else
             missing_arg (argv[i]);
         }
+      else if (argv[i][1] == 'k' && !argv[i][2])
+        continue_on_error = 1;
       else if (argv[i][1] == 't')
         {
           const char *trace_name = "-";
@@ -282,14 +309,7 @@ void parse_args(int argc, char *argv[], int *first_arg_p)
               exit (0);
             }
         }
-      else if (argv[i][1] == 's' && !strcmp(argv[i], "-slots"))
-        {
-          if (argv[i+1])
-            slots_string = argv[++i];
-          else
-            missing_arg(argv[i]);
-        }
-      else if (argv[i][1] == 'h')
+      else if (argv[i][1] == 'h' || (argv[i][1] == '-' && argv[i][2] == 'h'))
         {
           help();
           exit (0);
@@ -310,19 +330,14 @@ int main (int argc, char *argv[])
   int cpid;
   int i;
   int slot;
+  int error_encountered = 0;
 
   /* Defaults from environment */
   str = getenv("FORKARGS_J");
   if (str)
-    n_slots = atoi (str);
+    slots_string = str;
 
   parse_args(argc, argv, &first_arg);
-
-  if (n_slots <= 0)
-    {
-      fprintf (stderr, "Bad process limit (%d)\n", n_slots);
-      exit (2);
-    }
 
   /* Collect command arguments */
   args = calloc (argc - first_arg + 2, sizeof (char *));
@@ -332,10 +347,16 @@ int main (int argc, char *argv[])
 
   setup_slots (slots_string, args, line_arg);
 
+  if (n_slots <= 0)
+    {
+      fprintf (stderr, "Bad process limit (%d)\n", n_slots);
+      exit (2);
+    }
+
   if (trace)
     print_slots(trace);
 
-  while ((str = read_line (stdin)))
+  while ((str = read_line (stdin)) && (!error_encountered || continue_on_error))
     {
       /* Strip newline */
       char *nl = strstr (str, "\n");
@@ -346,8 +367,8 @@ int main (int argc, char *argv[])
         {
           int status;
           if (trace)
-            fprintf (trace, "%s: %d processes active, waiting for"
-                     " one to finish\n",
+            fprintf (trace, ("%s: %d processes active, waiting for"
+                             " one to finish\n"),
                      argv[0], n_active);
           /* Wait for one to exit before proceeding */
           cpid = wait (&status);
@@ -357,8 +378,11 @@ int main (int argc, char *argv[])
               exit(1);
             }
 
+          if (WIFEXITED(status) && WEXITSTATUS(status) != 0)
+            error_encountered = 1;
+
           if (trace)
-            fprintf (trace, "%s: child %d terminated\n", argv[0], cpid);
+            fprintf (trace, "%s: child %d terminated with status %d\n", argv[0], cpid, status);
 
           /* Scan slot table and remove entry */
           for (i = 0; i < n_slots; i++)
@@ -411,7 +435,7 @@ int main (int argc, char *argv[])
       else
         {
           /* Child. Execute the process. */
-
+          int status;
           /* Construct exec parameters */
           if (slots[slot].escape_arg)
             slots[slot].args[slots[slot].n_args] = escape_str (str);
@@ -429,8 +453,16 @@ int main (int argc, char *argv[])
 
           close(STDIN_FILENO);
           open("/dev/null", O_RDONLY);
-          execvp(slots[slot].args[0], slots[slot].args);
-          exit(0);
+          status = execvp(slots[slot].args[0], slots[slot].args);
+          if (status == -1)
+            {
+              perror(slots[slot].args[0]);
+              exit(1);
+            }
+          else
+            {
+              exit(0);
+            }
         }
     }
 
@@ -444,6 +476,8 @@ int main (int argc, char *argv[])
       if (trace)
         fprintf (trace, "%s: child %d terminated\n", argv[0], cpid);
       n_active --;
+      if (WIFEXITED(status) && WEXITSTATUS(status) != 0)
+        error_encountered = 1;
 
       /* Clear out the slot table */
       for (i = 0; i < n_slots; i++)
@@ -460,5 +494,5 @@ int main (int argc, char *argv[])
           }
     }
 
-  return 0;
+  return error_encountered? EXIT_FAILURE : EXIT_SUCCESS;
 }
