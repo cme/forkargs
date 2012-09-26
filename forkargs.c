@@ -360,7 +360,8 @@ int main (int argc, char *argv[])
   if (trace)
     print_slots(trace);
 
-  while ((str = read_line (stdin)) && (!error_encountered || continue_on_error))
+  while ((str = read_line (stdin)) && (!error_encountered
+                                       || continue_on_error))
     {
       /* Strip newline */
       char *nl = strstr (str, "\n");
@@ -383,10 +384,17 @@ int main (int argc, char *argv[])
             }
 
           if (WIFEXITED(status) && WEXITSTATUS(status) != 0)
-            error_encountered = 1;
+            {
+              if (verbose)
+                fprintf (stderr, "forkargs: (%s) exited with return code %d\n",
+                         slots[slot].hostname ? slots[slot].hostname : "localhost",
+                         WEXITSTATUS(status));
+              error_encountered = 1;
+            }
 
           if (trace)
-            fprintf (trace, "%s: child %d terminated with status %d\n", argv[0], cpid, status);
+            fprintf (trace, "%s: child %d terminated with status %d (rc %d)\n",
+                     argv[0], cpid, status, WEXITSTATUS(status));
 
           /* Scan slot table and remove entry */
           for (i = 0; i < n_slots; i++)
@@ -457,7 +465,8 @@ int main (int argc, char *argv[])
 
           if (verbose)
             {
-              fprintf (stderr, "forkargs: ");
+              fprintf (stderr, "forkargs: (%s) ",
+                       slots[slot].hostname ? slots[slot].hostname : "localhost");
               for (i = 0; i <= slots[slot].n_args; i++)
                 if (strstr(slots[slot].args[i], " ") == NULL)
                   /* No real need to print anything fancy */
@@ -502,7 +511,13 @@ int main (int argc, char *argv[])
         fprintf (trace, "%s: child %d terminated\n", argv[0], cpid);
       n_active --;
       if (WIFEXITED(status) && WEXITSTATUS(status) != 0)
-        error_encountered = 1;
+        {
+          if (verbose)
+            fprintf (stderr, "forkargs: (%s) exited with return code %d\n",
+                     slots[slot].hostname ? slots[slot].hostname : "localhost",
+                     WEXITSTATUS(status));
+          error_encountered = 1;
+        }
 
       /* Clear out the slot table */
       for (i = 0; i < n_slots; i++)
