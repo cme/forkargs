@@ -30,6 +30,12 @@ Options
     -k
         Continue on errors.
 
+Environment
+-----------
+
+The environment variable FORKARGS_J, if it exists, will provide a
+default 'slots' value if no '-j' option is passed.
+
 Remote Execution and Slots
 --------------------------
 
@@ -49,7 +55,8 @@ passwords.
 Remote hosts are specified using a generalisation of the '-j'
 option. The argument to the '-j' option defines a list of execution
 "slots". The format is a comma-separated list of entries defining some
-number of slots, each of which may execute a job in parallel. Each item may take the forms:
+number of slots, each of which may execute a job in parallel. Each
+item may take the forms:
 
     n
         Defines 'n' (an integer) slots on the local machine. Directly
@@ -78,3 +85,24 @@ For example:
 
     ls '*.wav' | forkargs -j '2,2*colin@willow' \
         sh -c 'lame $1 `basename $1.wav`'
+
+TO DO
+-----
+
+Use a single SSH connection per remote slot.
+
+Handle SIGINT elegantly:
+  * Wait nicely for jobs to finish on one SIGINT
+  * On a subsequent SIGINT, kill children and exit
+
+Test remote slots before executing any commands on them. If
+inaccessible, warn and don't use the slot.
+
+Add directory pathnames to slots. For example:
+    vm1:/home/colin,vm1:/mnt/nfs_vm1/home/colin
+Remote process cd's to specified directory before executing.
+
+Provide local/remote pre- and post-commands.
+  * per-host setup and teardown command options eg. to distribute
+    inputs, and recover outputs, via eg. rsync.
+  * per-slot pre- and post-commands to execute before/after each job.
