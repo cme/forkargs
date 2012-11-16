@@ -8,6 +8,8 @@ format.
 
 Important differences from xargs are:
 
+  * Jobs are executed in parallel to exploit multi-core machines
+
   * Arguments are not batched together into single commands
 
   * Arguments from input are treated as a single argument per
@@ -19,6 +21,19 @@ Quick examples:
         # Compress all text files with bzip, executing 4 jobs at once.
         find . -name '*.txt' | forkargs -j4 bzip2 -9
 
+This solves the problem of balancing prallelism with resource
+requirements for common vastly-parallel jobs.
+
+For example, it would be possible to perform the above with:
+
+    for x in `find . -name '*.txt'`; do bzip2 -9 "$x" & done
+
+which would execute all the bzip2 commands in parallel; however, this
+could lead to an arbitrary number of concurrent processes clamouring
+for OS resources (CPU time, memory), reducing system responsiveness
+until completion of sufficient tasks.
+
+
 Options
 -------
 
@@ -26,9 +41,12 @@ Options
 
         Specify parallel jobs (cc. 'make -j'). The 'slots' argument
         may be an integer specifying the number of jobs to execute
-        locally in parallel, or a slot definition list.
+        locally in parallel, or a slot definition list (see below).
+        The default value is '1'
     -k
         Continue on errors.
+    -v
+        Verbose output: print each command before executing.
 
 Environment
 -----------
@@ -86,8 +104,23 @@ For example:
     ls '*.wav' | forkargs -j '2,2*colin@willow' \
         sh -c 'lame $1 `basename $1.wav`'
 
+Complex command lines
+---------------------
+
+The commands are all passed a single line of the input, as a single
+argument. That's handy for a huge number of commands, such as those
+shown above. However, sometimes a different, or more complicated
+processing of the arguments is required. Such cases can be constructed
+by using /bin/sh as a wrapper to process arguments, for example:
+
+    find . -name '*.png' \
+        | forkargs -j4 sh -c 'convert -scale 64x64 "$1" "$1".thumb.jpg'
+
+
 TO DO
 -----
+
+Default slots setting from number of CPUs in /proc/cpuinfo if present.
 
 Use a single SSH connection per remote slot.
 
