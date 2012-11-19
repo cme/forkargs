@@ -37,6 +37,8 @@ struct Slot
   int n_args;                   /* number of existing args. */
   char *arg;                    /* current argument */
   int escape_arg;
+  int faulted;                  /* is this slot unusable (eg. on an
+                                   inaccessible remote machine? */
 };
 
 /* Execution slots table */
@@ -48,6 +50,8 @@ const char *slots_string = NULL;
 int continue_on_error = 0;
 
 int verbose = 0;
+
+int skip_slot_test = 0;
 
 char *escape_str (const char *str)
 {
@@ -83,7 +87,9 @@ void print_slots(FILE *out)
           fprintf (out, "%60s %5d '%s'\n",
                    slots[i].hostname? slots[i].hostname : "(localhost)",
                    slots[i].cpid,
-                   slots[i].cpid != -1? slots[i].arg : "-");
+                   (slots[i].faulted? "FAULTED" : 
+                    slots[i].cpid != -1? slots[i].arg :
+                    "-"));
         }
     }
   else
@@ -210,6 +216,80 @@ void setup_slots(const char *str, char ** args, int n_args)
     }
 }
 
+/* Test remote slots to make sure they're accessible. */
+static void test_slots(int argc, char *argv[])
+{
+  int i;
+  char *args[] = {
+    "ssh",
+    NULL,
+    "true",
+    NULL
+  };
+  /* Check each slot explicitly.
+     TODO: if we have multiple remote hosts, it would be neat to be
+     able to run these in parallel. */
+  for (i = 0; i < n_slots; i++)
+    {
+      if (slots[i].hostname && strcmp(slots[i].hostname, "localhost"))
+        {
+          int cpid;
+          int j;
+          /* Have we already tested this hostname? Eww O(n^2). But n
+             is small. */
+          for (j = 0; j < i; j++)
+            if (slots[j].hostname && !strcmp(slots[j].hostname,
+                                             slots[i].hostname))
+              break;
+          if (j != i)
+            {
+              slots[i].faulted = slots[j].faulted;
+              continue;
+            }
+
+          args[1] = slots[i].hostname;
+          if (verbose)
+            {
+              fprintf (stderr, "forkargs: testing remote slot on '%s'\n",
+                       slots[i].hostname);
+            }
+          cpid = fork();
+          if (cpid == -1)
+            {
+              perror(argv[0]);
+              exit(1);
+            }
+          else if (cpid)
+            {
+              /* Parent */
+              int status;
+              cpid = waitpid(cpid, &status, 0);
+              if (WEXITSTATUS(status) != 0)
+                {
+                  fprintf (stderr, "Warning: slot on '%s' inaccessible\n",
+                           slots[i].hostname);
+                  slots[i].faulted = 1;
+                }
+            }
+          else
+            {
+              /* Child */
+              int status;
+              status = execvp(slots[i].args[0], args);
+              if (status == -1)
+                {
+                  perror(slots[i].args[0]);
+                  exit(1);
+                }
+              else
+                {
+                  exit(0);
+                }
+            }
+        }
+    }
+}
+
 static char *
 read_line_offset (FILE *in,
                   size_t offset)
@@ -254,6 +334,8 @@ void help (void)
   fprintf (stdout, " -k      Continue on errors.\n");
   fprintf (stdout, " -v      Verbose\n");
   fprintf (stdout, " -t<out> trace process control info to <out>\n");
+  fprintf (stdout, " -n      Do not test accessibility of remote machines"
+           " before issuing commands to them.\n");
 }
 
 void bad_arg (char *arg)
@@ -291,6 +373,8 @@ void parse_args(int argc, char *argv[], int *first_arg_p)
         continue_on_error = 1;
       else if (argv[i][1] == 'v' && !argv[i][2])
         verbose = 1;
+      else if (argv[i][1] == 'n' && !argv[i][2])
+        skip_slot_test = 1;
       else if (argv[i][1] == 't')
         {
           const char *trace_name = "-";
@@ -331,6 +415,7 @@ int main (int argc, char *argv[])
   int first_arg;
   int line_arg;
   int n_active = 0;
+  int n_faulted = 0;
   int cpid;
   int i;
   int slot;
@@ -350,6 +435,13 @@ int main (int argc, char *argv[])
   line_arg = i;
 
   setup_slots (slots_string, args, line_arg);
+  if (!skip_slot_test)
+    test_slots (argc, argv);
+
+  /* Count the number of faulted slots. */
+  for (i = 0; i < n_slots; i++)
+    if (slots[i].faulted)
+      n_faulted++;
 
   if (n_slots <= 0)
     {
@@ -368,13 +460,14 @@ int main (int argc, char *argv[])
       if (nl)
         *nl = '\0';
 
-      if (n_active >= n_slots)
+      /* Wait for a free slot */
+      if (n_active + n_faulted >= n_slots)
         {
           int status;
           if (trace)
-            fprintf (trace, ("%s: %d processes active, waiting for"
-                             " one to finish\n"),
-                     argv[0], n_active);
+            fprintf (trace, ("%s: %d processes active (+%d faulted), "
+                             "waiting for one to finish\n"),
+                     argv[0], n_active, n_faulted);
           /* Wait for one to exit before proceeding */
           cpid = wait (&status);
           if (cpid == -1)
@@ -387,7 +480,8 @@ int main (int argc, char *argv[])
             {
               if (verbose)
                 fprintf (stderr, "forkargs: (%s) exited with return code %d\n",
-                         slots[slot].hostname ? slots[slot].hostname : "localhost",
+                         (slots[slot].hostname ?
+                          slots[slot].hostname : "localhost"),
                          WEXITSTATUS(status));
               error_encountered = 1;
             }
@@ -417,7 +511,7 @@ int main (int argc, char *argv[])
 
       /* Scan the slot table to find a free slot. */
       for (i = 0; i < n_slots; i++)
-        if (slots[i].cpid == -1)
+        if (slots[i].cpid == -1 && !slots[i].faulted)
           break;
       if (i == n_slots)
         {

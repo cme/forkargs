@@ -47,6 +47,9 @@ Options
         Continue on errors.
     -v
         Verbose output: print each command before executing.
+    -n
+        Do not test remote machines for accessibility before issuing
+        commands to them.
 
 Environment
 -----------
@@ -68,7 +71,12 @@ significant latency at the start of the job, and makes it almost
 essential to set up ssh keys appropriately to avoid having to enter
 passwords. 
 
-(TODO: don't do it that way.)
+(TODO: use a single connection.)
+
+If any remote hosts are to be used, forkargs will initially attempt to
+ssh to the host in order to check that it is accessible. If this test
+ssh command fails, slots on that remote machine will be flagged as
+faulted and no commands will be issued to them.
 
 Remote hosts are specified using a generalisation of the '-j'
 option. The argument to the '-j' option defines a list of execution
@@ -128,8 +136,16 @@ Handle SIGINT elegantly:
   * Wait nicely for jobs to finish on one SIGINT
   * On a subsequent SIGINT, kill children and exit
 
-Test remote slots before executing any commands on them. If
-inaccessible, warn and don't use the slot.
+Better testing for accessibility of remote machines. Rather than
+waiting until all remote machines have been tested before issuing any
+command, we could:
+  * allow the local slots to start processing immediately
+  * before issuing the first command to each remote slot, spawn a test
+    process. Once it has been successfully tested, commands may be 
+    issued to it.
+  * If the local machine can process all the commands before the test
+    SSH returns (successfully or unsuccessfully) then forkargs should
+    just complete.
 
 Add directory pathnames to slots. For example:
     vm1:/home/colin,vm1:/mnt/nfs_vm1/home/colin
