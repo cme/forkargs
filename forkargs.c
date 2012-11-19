@@ -103,6 +103,13 @@ void setup_slots(const char *str, char ** args, int n_args)
 {
   int i;
   n_slots = 1;                  /* default to 1 slot */
+  /* On platforms that can report the number of CPUs this way, use
+     that as a default. */
+#if defined(_SC_NPROCESSORS_ONLN)
+  n_slots = sysconf(_SC_NPROCESSORS_ONLN);
+  if (trace)
+    fprintf (trace, "forkargs: defaulting to %d slots\n", n_slots);
+#endif
   slots = calloc (sizeof (Slot), n_slots);
   for (i = 0; i < n_slots; i++)
     {
@@ -325,7 +332,6 @@ read_line (FILE *in)
 {
   return read_line_offset (in, 0);
 }
-
 
 void help (void)
 {
