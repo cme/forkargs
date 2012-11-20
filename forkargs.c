@@ -13,6 +13,7 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <signal.h>
 
 
 /* Spawn off <n> jobs at a time.
@@ -52,6 +53,32 @@ int continue_on_error = 0;
 int verbose = 0;
 
 int skip_slot_test = 0;
+
+int interrupted = 0;
+
+
+/* Signal handling:
+   On the first interrupt, we simply flag that it has been received,
+   by interrupt() setting the 'interrupted' flag,  and allow the
+   existing commands to run to completion.
+   On a subsequent interrupt, really_interrupt() will distribute the
+   interrupt signal to all children.
+ */
+void really_interrupt (int signum)
+{
+  int i;
+  fprintf (stderr, "forkargs: interrupting children...\n");
+  for (i = 0; i < n_slots; i++)
+    if (slots[i].cpid != -1)
+      kill (slots[i].cpid, SIGINT);
+}
+
+void interrupt(int signum)
+{
+  interrupted = 1;
+  signal(SIGINT, really_interrupt);
+  fprintf (stderr, "forkargs: interrupted, waiting for processes.\n");
+}
 
 char *escape_str (const char *str)
 {
@@ -458,8 +485,12 @@ int main (int argc, char *argv[])
   if (trace)
     print_slots(trace);
 
-  while ((str = read_line (stdin)) && (!error_encountered
-                                       || continue_on_error))
+  signal (SIGINT, interrupt);
+
+  while ((str = read_line (stdin))
+         && (!error_encountered
+             || continue_on_error)
+         && (!interrupted))
     {
       /* Strip newline */
       char *nl = strstr (str, "\n");

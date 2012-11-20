@@ -132,10 +132,6 @@ TO DO
 
 Use a single SSH connection per remote slot.
 
-Handle SIGINT elegantly:
-  * Wait nicely for jobs to finish on one SIGINT
-  * On a subsequent SIGINT, kill children and exit
-
 Better testing for accessibility of remote machines. Rather than
 waiting until all remote machines have been tested before issuing any
 command, we could:
