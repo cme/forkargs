@@ -42,7 +42,9 @@ Options
         Specify parallel jobs (cc. 'make -j'). The 'slots' argument
         may be an integer specifying the number of jobs to execute
         locally in parallel, or a slot definition list (see below).
-        The default value is '1'
+        By default, forkargs uses as many slots as there are available
+        processors on the system.
+
     -k
         Continue on errors.
     -v
@@ -128,8 +130,6 @@ by using /bin/sh as a wrapper to process arguments, for example:
 TO DO
 -----
 
-Default slots setting from number of CPUs in /proc/cpuinfo if present.
-
 Use a single SSH connection per remote slot.
 
 Handle SIGINT elegantly:
@@ -155,3 +155,7 @@ Provide local/remote pre- and post-commands.
   * per-host setup and teardown command options eg. to distribute
     inputs, and recover outputs, via eg. rsync.
   * per-slot pre- and post-commands to execute before/after each job.
+
+Combining the above, add an option to sync working directory to remote
+working directories, and sync back (assuming results are additive) at
+the end. This happens to be precisely my most frequent use-case.
