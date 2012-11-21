@@ -38,8 +38,10 @@ struct Slot
   int n_args;                   /* number of existing args. */
   char *arg;                    /* current argument */
   int escape_arg;
+  int remote_slot;
   int faulted;                  /* is this slot unusable (eg. on an
                                    inaccessible remote machine? */
+  const char *working_dir;
 };
 
 /* Execution slots table */
@@ -116,12 +118,29 @@ void print_slots(FILE *out)
                    (slots[i].faulted? "FAULTED" : 
                     slots[i].cpid != -1? slots[i].arg :
                     "-"));
+          fprintf (out, "%60s %5s wd: '%s'\n",
+                   "", "", slots[i].working_dir);
         }
     }
   else
     {
       fprintf (out, "(no slots)\n");
     }
+}
+
+char *working_dir_str(const char *str, int remote)
+{
+  if (str[0] == '~' && !remote)
+    {
+      const char *home = getenv("HOME");
+      int len = strlen(str) + strlen(home) + (str[1] != '/');
+      char *res = malloc(len + 1);
+      sprintf(res, "%s%s%s", home, (str[1] != '/' && str[1])?"/":"",
+              &str[1]);
+      return res;
+    }
+  else
+    return strdup(str);
 }
 
 /* Initialise slots */
@@ -156,6 +175,7 @@ void setup_slots(const char *str, char ** args, int n_args)
         {
           int num_slots = 1;
           char hostname[BUFSIZ] = "localhost";
+          char working_dir[BUFSIZ] = "";
 
           while (*c && isspace(*c))
             c++;
@@ -185,11 +205,12 @@ void setup_slots(const char *str, char ** args, int n_args)
                 }
             }
 
-          if (*c && *c != ',')
+          if (*c && *c != ',' && *c != ':')
             {
               /* Hostname */
               i = 0;
-              while (*c && (isalnum(*c) || *c == '-' || *c == '.' || *c == '-' || *c == '@'))
+              while (*c && (isalnum(*c) || *c == '-' || *c == '.'
+                            || *c == '@'))
                 hostname[i++] = *c++;
               hostname[i++] = '\0';
               
@@ -199,6 +220,16 @@ void setup_slots(const char *str, char ** args, int n_args)
                   exit(2);
                 }
             }
+
+          if (*c == ':')
+            {
+              /* Working directory */
+              c++;
+              i = 0;
+              while (*c && *c != ',')
+                working_dir[i++] = *c++;
+              working_dir[i++] = '\0';
+            }
           
           /* Set up NUM_SLOTS slots for this entry. */
           for (i = 0; i < num_slots; i++)
@@ -206,14 +237,31 @@ void setup_slots(const char *str, char ** args, int n_args)
               int a, ai;
               char **slot_args;
               char *host = NULL;
+              char *wd = NULL;
               if (strcmp(hostname, "localhost") && strcmp(hostname, "-"))
                 host = strdup(hostname);
+              if (working_dir[0])
+                {
+                  wd = working_dir_str(working_dir, host != NULL);
+                }
               a = 0;
-              slot_args = calloc (n_args + 2 + 2, sizeof(*slot_args));
+              slot_args = calloc (n_args + 2 + 2 + 3, sizeof(*slot_args));
+
+              /* For remote slots, we set up some arguments
+                 appropriately here: constructing the SSH command
+                 arguments so they're ready to go, rather than
+                 deferring this until we're ready to exec(). */
               if (host)
                 {
                   slot_args[a++] = "ssh";
                   slot_args[a++] = host;
+                  if (wd)
+                    {
+                      slot_args[a++] = "cd";
+                      slot_args[a++] = escape_str(wd);
+                      slot_args[a++] = ";";
+                    }
+
                   for (ai = 0; ai < n_args; ai++)
                     slot_args[a++] = escape_str (args[ai]);
                 }
@@ -228,6 +276,7 @@ void setup_slots(const char *str, char ** args, int n_args)
               slots[n_slots -1].n_args = a;
               slots[n_slots -1].arg = NULL;
               slots[n_slots -1].escape_arg = host != NULL;
+              slots[n_slots -1].working_dir = wd;
             }
 
           while (*c && isspace(*c))
@@ -645,8 +694,22 @@ int main (int argc, char *argv[])
               fprintf (stderr, "\n");
             }
 
+          /* Close parent's stdin */
           close(STDIN_FILENO);
           open("/dev/null", O_RDONLY);
+
+          /* Change working directory, but only if it's a local slot! */
+          if (slots[slot].working_dir != NULL && slots[slot].hostname == NULL)
+            {
+              if (trace)
+                fprintf (trace, "forkargs: chdir to '%s'\n",
+                         slots[slot].working_dir);
+              if (chdir(slots[slot].working_dir) == -1)
+                {
+                  perror(slots[slot].args[0]);
+                  exit(1);
+                }
+            }
           status = execvp(slots[slot].args[0], slots[slot].args);
           if (status == -1)
             {

@@ -98,6 +98,10 @@ item may take the forms:
     n * hostname
         Defines 'n' (an integer) identical slots on a remote machine 'hostname'
 
+'hostname' entries can optionally specify a username (to log in as
+with ssh) and a directory to change to on the remote machine, in the
+common 'user@hostname:directory' format used by rsync, etc.
+
 The following are all equivalent to '-j3':
     -j 1,1,1
     -j 1,2
@@ -144,10 +148,6 @@ command, we could:
   * If the local machine can process all the commands before the test
     SSH returns (successfully or unsuccessfully) then forkargs should
     just complete.
-
-Add directory pathnames to slots. For example:
-    vm1:/home/colin,vm1:/mnt/nfs_vm1/home/colin
-Remote process cd's to specified directory before executing.
 
 Provide local/remote pre- and post-commands.
   * per-host setup and teardown command options eg. to distribute
