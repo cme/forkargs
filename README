@@ -119,7 +119,7 @@ Complex command lines
 
 The commands are all passed a single line of the input, as a single
 argument. That's handy for a huge number of commands, such as those
-shown above. However, sometimes a different, or more complicated
+shown above. However, sometimes different, or more complicated
 processing of the arguments is required. Such cases can be constructed
 by using /bin/sh as a wrapper to process arguments, for example:
 

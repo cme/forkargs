@@ -309,6 +309,8 @@ static void test_slots(int argc, char *argv[])
             {
               /* Child */
               int status;
+              close(STDIN_FILENO);
+              open("/dev/null", O_RDONLY);
               status = execvp(slots[i].args[0], args);
               if (status == -1)
                 {
@@ -487,10 +489,13 @@ int main (int argc, char *argv[])
 
   signal (SIGINT, interrupt);
 
-  while ((str = read_line (stdin))
+  if (trace)
+    fprintf (trace, "forkargs: processing lines\n");
+  while (!interrupted
          && (!error_encountered
              || continue_on_error)
-         && (!interrupted))
+         && (str = read_line (stdin))
+         && !interrupted)
     {
       /* Strip newline */
       char *nl = strstr (str, "\n");
@@ -630,6 +635,9 @@ int main (int argc, char *argv[])
             }
         }
     }
+  if (trace)
+    fprintf (trace, "forkargs: finished processing lines\n");
+
 
   /* Wait for all children to terminate */
   while (n_active)
