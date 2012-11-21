@@ -47,12 +47,11 @@ Slot *slots;
 int n_slots = 1;
 
 const char *slots_string = NULL;
-
 int continue_on_error = 0;
-
 int verbose = 0;
-
 int skip_slot_test = 0;
+FILE *in_arguments = NULL;
+
 
 int interrupted = 0;
 
@@ -332,7 +331,7 @@ read_line_offset (FILE *in,
 {
   char buffer[BUFSIZ];
   char *result = NULL;
-  if (!feof(stdin)
+  if (!feof(in)
       && fgets(buffer, BUFSIZ, in))
     {
       size_t len = strlen(buffer);
@@ -369,8 +368,11 @@ void help (void)
   fprintf (stdout, " -k      Continue on errors.\n");
   fprintf (stdout, " -v      Verbose\n");
   fprintf (stdout, " -t<out> trace process control info to <out>\n");
-  fprintf (stdout, " -n      Do not test accessibility of remote machines"
-           " before issuing commands to them.\n");
+  fprintf (stdout, (" -n      "
+                    "Do not test accessibility of remote machines"
+                    " before issuing commands to them.\n"));
+  fprintf (stdout, (" -f<file> Take input arguments from file rather than"
+                    " stdin.\n"));
 }
 
 void bad_arg (char *arg)
@@ -432,6 +434,26 @@ void parse_args(int argc, char *argv[], int *first_arg_p)
               exit (0);
             }
         }
+      else if (argv[i][1] == 'f')
+        {
+          const char *in_arguments_name = "-";
+          if (argv[i][2])
+            in_arguments_name = &argv[i][2];
+          else if (i + 1 < argc)
+            in_arguments_name = argv[++i];
+          else
+            missing_arg (argv[i]);
+          if (in_arguments_name[0] == '-' && in_arguments_name[1] == '\0')
+            in_arguments = stdin;
+          else
+            in_arguments = fopen(in_arguments_name, "r");
+          if (!in_arguments)
+            {
+              fprintf (stderr, "Cannot open input file '%s'\n",
+                       in_arguments_name);
+              exit (0);
+            }
+        }
       else if (argv[i][1] == 'h' || (argv[i][1] == '-' && argv[i][2] == 'h'))
         {
           help();
@@ -460,6 +482,8 @@ int main (int argc, char *argv[])
   str = getenv("FORKARGS_J");
   if (str)
     slots_string = str;
+
+  in_arguments = stdin;
 
   parse_args(argc, argv, &first_arg);
 
@@ -494,7 +518,7 @@ int main (int argc, char *argv[])
   while (!interrupted
          && (!error_encountered
              || continue_on_error)
-         && (str = read_line (stdin))
+         && (str = read_line (in_arguments))
          && !interrupted)
     {
       /* Strip newline */

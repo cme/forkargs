@@ -52,6 +52,8 @@ Options
     -n
         Do not test remote machines for accessibility before issuing
         commands to them.
+    -f <file>
+        Read input arguments from a named file rather than from stdin
 
 Environment
 -----------
