@@ -149,6 +149,8 @@ command, we could:
     SSH returns (successfully or unsuccessfully) then forkargs should
     just complete.
 
+When testing remote machine slots, test the working directory too.
+
 Provide local/remote pre- and post-commands.
   * per-host setup and teardown command options eg. to distribute
     inputs, and recover outputs, via eg. rsync.
