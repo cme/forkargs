@@ -52,6 +52,7 @@ int continue_on_error = 0;
 int verbose = 0;
 int skip_slot_test = 0;
 FILE *in_arguments = NULL;
+int sync_working_dirs = 0;
 
 
 int interrupted = 0;
@@ -411,16 +412,18 @@ read_line (FILE *in)
 
 void help (void)
 {
-  fprintf (stdout, "Syntax: forkargs -t<out> -j<n>\n");
-  fprintf (stdout, " -j<n>   Maximum of <n> parallel jobs\n");
-  fprintf (stdout, " -k      Continue on errors.\n");
-  fprintf (stdout, " -v      Verbose\n");
-  fprintf (stdout, " -t<out> trace process control info to <out>\n");
+  fprintf (stdout, ("Syntax: forkargs -t<out> -j<n>\n"));
+  fprintf (stdout, (" -j<n>   Maximum of <n> parallel jobs\n"));
+  fprintf (stdout, (" -k      Continue on errors.\n"));
+  fprintf (stdout, (" -v      Verbose\n"));
+  fprintf (stdout, (" -t<out> trace process control info to <out>\n"));
   fprintf (stdout, (" -n      "
                     "Do not test accessibility of remote machines"
                     " before issuing commands to them.\n"));
   fprintf (stdout, (" -f<file> Take input arguments from file rather than"
                     " stdin.\n"));
+  fprintf (stdout, (" -sync   Synchronise working directories before (and \n"
+                    "         after running)\n"));
 }
 
 void bad_arg (char *arg)
@@ -506,6 +509,10 @@ void parse_args(int argc, char *argv[], int *first_arg_p)
         {
           help();
           exit (0);
+        }
+      else if (!strcmp(argv[i], "sync"))
+        {
+          sync_working_dirs = 1;
         }
       else
         bad_arg (argv[i]);
