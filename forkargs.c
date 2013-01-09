@@ -37,7 +37,6 @@ struct Slot
   char **args;
   int n_args;                   /* number of existing args. */
   char *arg;                    /* current argument */
-  int escape_arg;
   int remote_slot;
   int faulted;                  /* is this slot unusable (eg. on an
                                    inaccessible remote machine? */
@@ -275,7 +274,7 @@ void setup_slots(const char *str, char ** args, int n_args)
               slots[n_slots -1].args = slot_args;
               slots[n_slots -1].n_args = a;
               slots[n_slots -1].arg = NULL;
-              slots[n_slots -1].escape_arg = host != NULL;
+              slots[n_slots -1].remote_slot = host != NULL;
               slots[n_slots -1].working_dir = wd;
             }
 
@@ -658,7 +657,7 @@ int main (int argc, char *argv[])
           /* Child. Execute the process. */
           int status;
           /* Construct exec parameters */
-          if (slots[slot].escape_arg)
+          if (slots[slot].remote_slot)
             slots[slot].args[slots[slot].n_args] = escape_str (str);
           else
             slots[slot].args[slots[slot].n_args] = str;
@@ -675,7 +674,8 @@ int main (int argc, char *argv[])
           if (verbose)
             {
               fprintf (stderr, "forkargs: (%s) ",
-                       slots[slot].hostname ? slots[slot].hostname : "localhost");
+                       (slots[slot].hostname ? slots[slot].hostname
+                        : "localhost"));
               for (i = 0; i <= slots[slot].n_args; i++)
                 if (strstr(slots[slot].args[i], " ") == NULL)
                   /* No real need to print anything fancy */
