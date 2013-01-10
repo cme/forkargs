@@ -9,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <ctype.h>
+#include <assert.h>
 
 #include <unistd.h>
 #include <sys/wait.h>
@@ -295,6 +296,45 @@ void setup_slots(const char *str, char ** args, int n_args)
             break;
 
         } /* while (*c) */
+    }
+
+  /* Synchronise working directory */
+  if (sync_working_dirs)
+    {
+      char **args;
+      char *local_args[] = {
+        "rsync", "--delete", "-ravu", "./", NULL, NULL
+      };
+      const int local_args_dest_i = 4;
+      char *remote_args[] = {
+        "rsync", "--delete", "-e", "ssh", "-ravu", "./", NULL, NULL
+      };
+      const int remote_args_dest_i = 6;
+      assert(local_args[local_args_dest_i] == NULL
+             && local_args[local_args_dest_i+1] == NULL);
+      assert(remote_args[remote_args_dest_i] == NULL
+             && remote_args[remote_args_dest_i+1] == NULL);
+      /* Check that all slots have a specified working directory */
+      for (i = 0; i < n_slots; i++)
+        {
+          if (slots[i].working_dir == NULL)
+            {
+              fprintf (stderr, ("forkargs: must specify working directory "
+                                "when synchronising work dirs\n"));
+            }
+        }
+      for (i = 0; i < n_slots; i++)
+        {
+          int j;
+          /* Check that we haven't already encountered this host:dir pair before. */
+          for (j = 0; j < i; j++)
+            if (!strcmp (slots[i].hostname, slots[j].hostname)
+                && !strcmp (slots[i].working_dir, slots[j].working_dir))
+              break;
+          if (i != j)
+            continue;
+          assert (0);
+        }
     }
 }
 
